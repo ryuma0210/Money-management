@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>お金の出入り管理システム</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f4f6f9; margin: 0; padding: 20px; color: #333; }
+        .container { max-width: 700px; margin: 0 auto; background: white; padding: 24px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        h2 { text-align: center; color: #2c3e50; margin-bottom: 8px; }
+        .status { text-align: center; font-size: 13px; color: #27ae60; margin-bottom: 20px; font-weight: bold; }
+        
+        /* タブ切り替えボタン */
+        .tabs { display: flex; margin-bottom: 20px; border-bottom: 2px solid #ddd; }
+        .tab-btn { flex: 1; padding: 12px; text-align: center; background: #f8f9fa; cursor: pointer; font-weight: bold; border: none; font-size: 15px; color: #555; }
+        .tab-btn.active { background: white; color: #007bff; border-bottom: 3px solid #007bff; margin-bottom: -2px; }
+
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        .form-group { margin-bottom: 16px; }
+        label { display: block; font-weight: bold; margin-bottom: 6px; font-size: 14px; }
+        input[type="text"], input[type="number"], input[type="date"], select, textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; font-size: 14px; }
+        
+        .checkbox-group { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+        .checkbox-group input { width: 20px; height: 20px; }
+
+        button { width: 100%; padding: 12px; border: none; border-radius: 6px; font-size: 16px; font-weight: bold; cursor: pointer; margin-top: 8px; }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-primary:hover { background: #0056b3; }
+
+        /* 一覧カード */
+        .record-card { background: #fff; border: 1px solid #e1e4e8; border-left: 5px solid #28a745; padding: 14px; border-radius: 6px; margin-top: 12px; position: relative; }
+        .record-card.unsettled { border-left-color: #ffc107; }
+        .record-header { display: flex; justify-content: space-between; font-weight: bold; font-size: 16px; margin-bottom: 6px; }
+        .record-details { font-size: 14px; color: #555; margin-bottom: 6px; }
+        .record-meta { font-size: 12px; color: #777; display: flex; justify-content: space-between; align-items: center; margin-top: 8px; border-top: 1px solid #eee; padding-top: 6px; }
+        .btn-actions { display: flex; gap: 6px; }
+        .btn-edit { background: #ffc107; color: #333; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; }
+        .btn-delete { background: #ff4d4d; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>お金の出入り管理</h2>
+    <div id="connectionStatus" class="status">🔄 スプレッドシートと通信中...</div>
+
+    <!-- タブ切り替えボタン -->
+    <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('input')">➕ 入力画面</button>
+        <button class="tab-btn" onclick="switchTab('list')">📊 一覧・編集</button>
+    </div>
+
+    <!-- TAB 1: 入力画面 -->
+    <div id="tab-input" class="tab-content active">
+        <input type="hidden" id="editRowIndex" value="">
+
+        <div class="form-group">
+            <label>いつ（出金日）</label>
+            <input type="date" id="date">
+        </div>
+
+        <div class="form-group">
+            <label>金額（円）</label>
+            <input type="number" id="amount" placeholder="例: 15000">
+        </div>
+
+        <div class="form-group">
+            <label>だれ（担当者）</label>
+            <input type="text" id="person" placeholder="例: 清水">
+        </div>
+
+        <div class="form-group">
+            <label>勘定科目</label>
+            <select id="category">
+                <option value="車両費">車両費</option>
+                <option value="仕入費">仕入費</option>
+                <option value="光熱費">光熱費</option>
+                <option value="家賃・地代">家賃・地代</option>
+                <option value="通信費">通信費</option>
+                <option value="旅費交通費">旅費交通費</option>
+                <option value="消耗品費">消耗品費</option>
+                <option value="その他">その他</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>内容（どこでなにを）</label>
+            <textarea id="content" placeholder="例: 福岡市内のガソリンスタンドで給油"></textarea>
+        </div>
+
+        <div class="form-group">
+            <label>請求先名義</label>
+            <select id="billingName">
+                <option value="会社">会社</option>
+                <option value="個人">個人</option>
+            </select>
+        </div>
+
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid #eee;">
+
+        <h3 style="font-size: 15px; color: #2c3e50; margin-bottom: 12px;">【精算情報】</h3>
+
+        <div class="form-group">
+            <label class="checkbox-group">
+                <input type="checkbox" id="settledCheck" onchange="toggleSettledDate()"> 清算check（戻ってきたか）
+            </label>
+        </div>
+
+        <div class="form-group" id="settledDateGroup" style="display:none;">
+            <label>清算の日付</label>
+            <input type="date" id="settledDate">
+        </div>
+
+        <div class="form-group">
+            <label>どこから</label>
+            <select id="fromWhere">
+                <option value="">-- 選択してください --</option>
+                <option value="法人口座">法人口座</option>
+                <option value="代表者個人立替">代表者個人立替</option>
+                <option value="現金">現金</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>どこに</label>
+            <select id="toWhere">
+                <option value="">-- 選択してください --</option>
+                <option value="法人口座">法人口座</option>
+                <option value="代表者個人口座">代表者個人口座</option>
+                <option value="経費精算用">経費精算用</option>
+            </select>
+        </div>
+
+        <button id="submitBtn" class="btn-primary" onclick="saveRecord()">データを登録する</button>
+    </div>
+
+    <!-- TAB 2: 一覧・編集画面 -->
+    <div id="tab-list" class="tab-content">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <h3 style="margin:0; font-size:16px;">登録データ一覧（スプレッドシート連動）</h3>
+            <button onclick="loadRecords()" style="width: auto; padding: 6px 12px; font-size: 13px; background: #6c757d; color: white; margin: 0;">🔄 更新・再読み込み</button>
+        </div>
+        <div id="recordList">
+            <p style="text-align: center; color: #888;">データを読み込んでいます...</p>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    // ご提示いただいたGASウェブアプリのURL
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbyWCm56jFEN0aEvIi3TsuySgLFZX9ca_O5KGgvrAAfeofC_aGKjIKXkNIHswkdNOqYM/exec";
+
+    let records = [];
+
+    // 初期化：本日の日付設定 & データ読み込み
+    document.getElementById('date').valueAsDate = new Date();
+    loadRecords();
+
+    function switchTab(tabName) {
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+
+        if (tabName === 'input') {
+            document.querySelectorAll('.tab-btn')[0].classList.add('active');
+            document.getElementById('tab-input').classList.add('active');
+        } else {
+            document.querySelectorAll('.tab-btn')[1].classList.add('active');
+            document.getElementById('tab-list').classList.add('active');
+            loadRecords(); // 一覧を開いた時にスプレッドシートの最新状態を同期
+        }
+    }
+
+    function toggleSettledDate() {
+        const isChecked = document.getElementById('settledCheck').checked;
+        document.getElementById('settledDateGroup').style.display = isChecked ? 'block' : 'none';
+        if (isChecked && !document.getElementById('settledDate').value) {
+            document.getElementById('settledDate').valueAsDate = new Date();
+        }
+    }
+
+    // スプレッドシートからデータを取得
+    function loadRecords() {
+        document.getElementById("connectionStatus").innerText = "🔄 スプレッドシートからデータを取得中...";
+        fetch(GAS_URL)
+            .then(res => res.json())
+            .then(data => {
+                records = data;
+                document.getElementById("connectionStatus").innerText = "✅ スプレッドシートと連動中";
+                renderRecords();
+            })
+            .catch(err => {
+                document.getElementById("connectionStatus").innerText = "❌ データの取得に失敗しました";
+                document.getElementById("connectionStatus").style.color = "red";
+                console.error(err);
+            });
+    }
+
+    // データの登録・更新
+    function saveRecord() {
+        const editRowIndex = document.getElementById('editRowIndex').value;
+        const date = document.getElementById('date').value;
+        const amount = document.getElementById('amount').value;
+        const person = document.getElementById('person').value.trim();
+        const category = document.getElementById('category').value;
+        const content = document.getElementById('content').value.trim();
+        const billingName = document.getElementById('billingName').value;
+        const settled = document.getElementById('settledCheck').checked;
+        const settledDate = document.getElementById('settledDate').value;
+        const fromWhere = document.getElementById('fromWhere').value;
+        const toWhere = document.getElementById('toWhere').value;
+
+        if (!date || !amount || !person) {
+            alert("「いつ」「金額」「だれ」は必須入力です。");
+            return;
+        }
+
+        const payload = {
+            action: editRowIndex !== "" ? "update" : "add",
+            rowIndex: editRowIndex !== "" ? Number(editRowIndex) : null,
+            date,
+            amount: Number(amount),
+            person,
+            category,
+            content,
+            billingName,
+            settled,
+            settledDate: settled ? settledDate : "",
+            fromWhere,
+            toWhere
+        };
+
+        document.getElementById("connectionStatus").innerText = "💾 スプレッドシートに保存中...";
+
+        fetch(GAS_URL, {
+            method: "POST",
+            body: JSON.stringify(payload)
+        })
+        .then(res => res.json())
+        .then(res => {
+            if (res.status === "success") {
+                alert(editRowIndex !== "" ? "データを更新しました！" : "データを登録しました！");
+                resetForm();
+                loadRecords();
+                switchTab('list');
+            } else {
+                alert("エラーが発生しました: " + res.message);
+            }
+        })
+        .catch(err => {
+            alert("通信エラーが発生しました。");
+            console.error(err);
+        });
+    }
+
+    function renderRecords() {
+        const listDiv = document.getElementById('recordList');
+        if (records.length === 0) {
+            listDiv.innerHTML = '<p style="text-align: center; color: #888;">データはまだありません</p>';
+            return;
+        }
+
+        let html = "";
+        records.forEach((rec, index) => {
+            const cardClass = rec.settled ? "" : "unsettled";
+            html += `
+                <div class="record-card ${cardClass}">
+                    <div class="record-header">
+                        <span>📅 ${rec.date} | 💰 ¥${Number(rec.amount).toLocaleString()} (${rec.category})</span>
+                        <span style="font-size: 13px; color: ${rec.settled ? '#28a745' : '#e67e22'};">${rec.settled ? '✅ 清算済 (' + (rec.settledDate || '-') + ')' : '⏳ 未清算'}</span>
+                    </div>
+                    <div class="record-details">
+                        <b>担当:</b> ${escapeHtml(rec.person)} | <b>請求先:</b> <span style="color:#007bff; font-weight:bold;">${escapeHtml(rec.billingName || '会社')}</span><br>
+                        <b>内容:</b> ${escapeHtml(rec.content)}<br>
+                        <span style="font-size:12px; color:#555;">出元: ${rec.fromWhere || '-'} ➔ 行先: ${rec.toWhere || '-'}</span>
+                    </div>
+                    <div class="record-meta">
+                        <span>スプレッドシート行: ${rec.rowIndex}行目</span>
+                        <div class="btn-actions">
+                            <button class="btn-edit" onclick="editRecord(${index})">編集</button>
+                            <button class="btn-delete" onclick="deleteRecord(${rec.rowIndex})">削除</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        listDiv.innerHTML = html;
+    }
+
+    function editRecord(index) {
+        const rec = records[index];
+        document.getElementById('editRowIndex').value = rec.rowIndex;
+        document.getElementById('date').value = rec.date;
+        document.getElementById('amount').value = rec.amount;
+        document.getElementById('person').value = rec.person;
+        document.getElementById('category').value = rec.category;
+        document.getElementById('content').value = rec.content;
+        document.getElementById('billingName').value = rec.billingName || '会社';
+        document.getElementById('settledCheck').checked = rec.settled;
+        document.getElementById('settledDate').value = rec.settledDate || '';
+        document.getElementById('fromWhere').value = rec.fromWhere;
+        document.getElementById('toWhere').value = rec.toWhere;
+
+        toggleSettledDate();
+        document.getElementById('submitBtn').innerText = "変更を保存する";
+        document.getElementById('submitBtn').style.backgroundColor = "#ffc107";
+        document.getElementById('submitBtn').style.color = "#333";
+        switchTab('input');
+    }
+
+    function deleteRecord(rowIndex) {
+        if (confirm("この記録をスプレッドシートから削除しますか？")) {
+            document.getElementById("connectionStatus").innerText = "🗑️ 削除中...";
+            fetch(GAS_URL, {
+                method: "POST",
+                body: JSON.stringify({ action: "delete", rowIndex: rowIndex })
+            })
+            .then(res => res.json())
+            .then(res => {
+                if (res.status === "success") {
+                    alert("削除しました！");
+                    loadRecords();
+                } else {
+                    alert("削除に失敗しました");
+                }
+            });
+        }
+    }
+
+    function resetForm() {
+        document.getElementById('editRowIndex').value = "";
+        document.getElementById('date').valueAsDate = new Date();
+        document.getElementById('amount').value = "";
+        document.getElementById('person').value = "";
+        document.getElementById('content').value = "";
+        document.getElementById('billingName').value = "会社";
+        document.getElementById('settledCheck').checked = false;
+        document.getElementById('settledDate').value = "";
+        document.getElementById('fromWhere').value = "";
+        document.getElementById('toWhere').value = "";
+        toggleSettledDate();
+
+        document.getElementById('submitBtn').innerText = "データを登録する";
+        document.getElementById('submitBtn').style.backgroundColor = "#007bff";
+        document.getElementById('submitBtn').style.color = "white";
+    }
+
+    function escapeHtml(str) {
+        return String(str).replace(/[&<>"']/g, match => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[match]));
+    }
+</script>
+
+</body>
+</html>
